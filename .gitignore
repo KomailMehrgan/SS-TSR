@@ -1,4 +1,4 @@
-datasets/*
+datasets/data*
 !datasets/.gitkeep
 
 
@@ -106,8 +106,6 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# Data files (ignore datasets folder entirely)
-datasets/
 
 # Ignore model checkpoints (.pth files)
 *.pth

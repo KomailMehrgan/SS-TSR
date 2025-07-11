@@ -1,0 +1,6 @@
+SS-TSNR
+hard = 54.638
+easy = 79.265
+medium = 64.020
+
+
