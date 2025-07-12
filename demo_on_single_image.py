@@ -11,14 +11,19 @@ import torchvision.transforms as transforms
 # Import model definitions
 from Network.srresnet import _NetG
 from model.tsrn import TSRN
+from model.rdn import RDN
+from model.srcnn import SRCNN
 
 # Trust saved architectures
 add_safe_globals([_NetG, TSRN])
 
+# Model checkpoint paths
 MODEL_PATHS = {
     'ss-srresnet': 'back_up_models/SR/SS-srresnet.pth',
     'ss-tsrn': 'back_up_models/SR/SS-tsnr.pth',
-    'tpgsr': 'back_up_models/SR/TPGSR.pth'
+    'tpgsr': 'back_up_models/SR/TPGSR.pth',
+    'ss-rdn': 'back_up_models/SR/SS-rdn.pth',
+    'ss-srcnn': 'back_up_models/SR/SS-srcnn.pth'
 }
 
 OUTPUT_DIR = "output"
@@ -66,6 +71,19 @@ def load_model(name):
         model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=12, mask=True, hidden_units=64)
         model.load_state_dict(checkpoint['model'].state_dict())
 
+    elif name == 'ss-rdn':
+        checkpoint = torch.load(path, map_location='cpu', weights_only=False)
+        model = RDN()
+        model.load_state_dict(checkpoint['model'].state_dict())
+
+    elif name == 'ss-srcnn':
+        checkpoint = torch.load(path, map_location='cpu', weights_only=False)
+        model = SRCNN()
+        model.load_state_dict(checkpoint['model'].state_dict())
+
+    else:
+        raise ValueError(f"Unknown model: {name}")
+
     model.eval()
     return model
 
@@ -84,7 +102,7 @@ def infer_and_save(model, im_input, im_input_org, name):
     print(f"{name} Output size: {w}x{h}")
 
     out_path = os.path.join(OUTPUT_DIR, f"output_{name}.png")
-    cv2.imwrite(out_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR))  # 🔧 FIXED: Convert RGB to BGR
+    cv2.imwrite(out_path, cv2.cvtColor(result, cv2.COLOR_RGB2BGR))  # Convert RGB to BGR
     print(f"Saved: {out_path}")
 
     # Resize only for display
@@ -100,7 +118,7 @@ def main(selected_models, image_path):
 
     input_resized = cv2.resize(im_input_org, (512, 128))
     input_out_path = os.path.join(OUTPUT_DIR, "input.png")
-    cv2.imwrite(input_out_path, cv2.cvtColor(im_input_org, cv2.COLOR_RGB2BGR))  # Optional fix for input save
+    cv2.imwrite(input_out_path, cv2.cvtColor(im_input_org, cv2.COLOR_RGB2BGR))
     cv2.imshow("Input", input_resized)
     print(f"Saved input image to {input_out_path}")
     cv2.waitKey(0)
@@ -108,7 +126,7 @@ def main(selected_models, image_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--models', nargs='+', default=['ss-srresnet'],
-                        help="Which models to run: ss-srresnet, ss-tsrn, tpgsr")
+                        help="Which models to run: ss-srresnet, ss-tsrn, tpgsr, ss-rdn, ss-srcnn")
     parser.add_argument('--image', default='tets_images/lrTZtesthard_63.png',
                         help="Path to input image")
     args = parser.parse_args()
