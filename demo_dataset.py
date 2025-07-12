@@ -1,47 +1,111 @@
+import argparse
 import os
 import time
-import cv2
 import torch
 import numpy as np
+import cv2
+from PIL import Image
+import torchvision.transforms as transforms
+from torch.serialization import add_safe_globals
 
-# Check if CUDA is available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from Network.srresnet import _NetG
+from model.tsrn import TSRN
 
-# Load the model
-model_path = "backup_models/RES/2025-04-09_13-13-06/srgan_checkpoint111/srgan_model_epoch_491.pth"
-model = torch.load(model_path, map_location=device)["model"].to(device)
+# Trust saved architectures
+add_safe_globals([_NetG, TSRN])
 
-# Define input and output folders
-input_folder = "OCR/Benchmark_ocr/dataset/TextZoom_testMedium/LR_images"
-output_folder = "output_mynet_medium_491"
-os.makedirs(output_folder, exist_ok=True)
+# Model checkpoint paths
+MODEL_PATHS = {
+    'ss-srresnet': 'back_up_models/SR/SS-srresnet.pth',
+    'ss-tsrn': 'back_up_models/SR/SS-tsnr.pth',
+    'tpgsr': 'back_up_models/SR/TPGSR.pth'
+}
 
-# Process each image in the input folder
-for image_name in os.listdir(input_folder):
-    image_path = os.path.join(input_folder, image_name)
+def preprocess(image_path, model_name):
+    if model_name in ['ss-tsrn', 'tpgsr']:
+        img = Image.open(image_path).convert("RGB")
+        img = img.resize((64, 16), Image.BICUBIC)
+        img_tensor = transforms.ToTensor()(img)
 
-    # Read input image
-    image = cv2.imread(image_path)
-    if image is None:
-        print(f"Could not read image {image_path}. Skipping.")
-        continue
+        mask = img.convert('L')
+        thres = np.array(mask).mean()
+        mask = mask.point(lambda x: 0 if x > thres else 255)
+        mask = transforms.ToTensor()(mask)
 
-    # Preprocess the image
-    image = image.transpose(2, 0, 1)  # Change HWC to CHW
-    image = image[np.newaxis, :, :, :]  # Add batch dimension
-    image = torch.from_numpy(image / 255.).float().to(device)
+        im_input = torch.cat((img_tensor, mask), 0).unsqueeze(0)
+        im_input_org = np.array(img)
+    else:
+        im_input_org = cv2.imread(image_path)
+        im_input = im_input_org.transpose(2, 0, 1)
+        im_input = im_input.reshape(1, im_input.shape[0], im_input.shape[1], im_input.shape[2])
+        im_input = torch.from_numpy(im_input / 255.).float()
 
-    # Run inference
-    start_time = time.time()
-    output = model(image).cpu()
-    elapsed_time = time.time() - start_time
+    return im_input, im_input_org
 
-    # Post-process output
-    output_image = output.data[0].numpy().astype(np.float32) * 255.
-    output_image = np.clip(output_image, 0, 255).transpose(1, 2, 0)  # Change CHW to HWC
+def postprocess(tensor):
+    output = tensor.data[0].numpy().astype(np.float32)
+    output = np.clip(output * 255., 0, 255)
+    output = output.transpose(1, 2, 0)
+    return output.astype(np.uint8)
 
-    # Save output image
-    output_path = os.path.join(output_folder, image_name)
-    cv2.imwrite(output_path, output_image.astype(np.uint8))
+def load_model(name):
+    path = MODEL_PATHS[name]
+    if name == 'tpgsr':
+        checkpoint = torch.load(path, map_location='cpu',weights_only=False)
+        model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=5, mask=True, hidden_units=32)
+        model.load_state_dict(checkpoint['state_dict_G'])
 
-    print(f"Processed {image_name} in {elapsed_time:.4f} sec: output saved at {output_path}.")
+    elif name == 'ss-srresnet':
+        model = torch.load(path, map_location='cpu', weights_only=False)["model"]
+
+    elif name == 'ss-tsrn':
+        checkpoint = torch.load(path, map_location='cpu',weights_only=False)
+        model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=12, mask=True, hidden_units=64)
+        model.load_state_dict(checkpoint['model'].state_dict())
+
+    model.eval()
+    return model
+
+def infer_and_save(model, im_input, save_path):
+    with torch.no_grad():
+        output = model(im_input)
+    result = postprocess(output.cpu())
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    cv2.imwrite(save_path, cv2.resize(result, (512, 128)))
+    print(f"Saved: {save_path}")
+
+def is_image_file(filename):
+    return filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))
+
+def run_on_dataset(dataset_folder, selected_models):
+    lr_folder_name = os.path.basename(os.path.normpath(dataset_folder))
+    image_paths = []
+
+    for root, _, files in os.walk(dataset_folder):
+        for file in files:
+            if is_image_file(file):
+                image_paths.append(os.path.join(root, file))
+
+    for model_name in selected_models:
+        print(f"\n==> Running model: {model_name}")
+        model = load_model(model_name)
+        model.cpu()
+
+        for img_path in image_paths:
+            try:
+                im_input, _ = preprocess(img_path, model_name)
+                img_name = os.path.basename(img_path)
+                save_path = os.path.join("output", "dataset", model_name, lr_folder_name, img_name)
+                infer_and_save(model, im_input, save_path)
+            except Exception as e:
+                print(f"Failed on {img_path} with {model_name}: {e}")
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--models', nargs='+', default=['ss-tsrn', 'ss-srresnet', 'tpgsr'],
+                        help="Models to run: ss-tsrn, ss-srresnet, tpgsr")
+    parser.add_argument('--dataset', type=str, default=R"D:\Researches\SR\FirstPaperCode\OCR\Benchmark_ocr\dataset\TextZoom_testeasy\LR_images",
+                        help="Path to dataset folder containing LR images")
+    args = parser.parse_args()
+
+    run_on_dataset(args.dataset, args.models)

@@ -273,7 +273,7 @@ def total_gradient(parameters):
     return totalnorm
 
 def test_one_image(netSR, epoch, parent_folder):
-    im_input_org = cv2.imread("test.png")
+    im_input_org = cv2.imread("tets_images/test.png")
 
     # Determine the device (CUDA if available, else CPU)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
