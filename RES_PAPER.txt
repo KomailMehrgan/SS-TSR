@@ -1,12 +1,25 @@
+ASTER:
 SS-TSNR -> 199
-hard = 54.638
 easy = 79.265
 medium = 64.020
-
-
-
+hard = 54.638
 
 SS-TSNR -> 176
 easy = 77.254
 medium = 65.178
 hard = 52.851
+
+
+SS-SRRESNET -> 491
+easy = 78.710
+medium = 64.103
+hard = 50.213
+
+
+TPGSR
+easy = 70.111
+medium = 64.103
+hard = 50.213
+
+
+
