@@ -43,15 +43,15 @@ def preprocess(image_path, model_name):
     return im_input, im_input_org
 
 def postprocess(tensor):
-    output = tensor.data[0].numpy().astype(np.float32)
-    output = np.clip(output * 255., 0, 255)
-    output = output.transpose(1, 2, 0)
-    return output.astype(np.uint8)
+    output = tensor.squeeze(0).clamp(0, 1).permute(1, 2, 0).cpu().numpy()
+    output = (output * 255).astype(np.uint8)
+    return output
 
 def load_model(name):
     path = MODEL_PATHS[name]
+
     if name == 'tpgsr':
-        checkpoint = torch.load(path, map_location='cpu',weights_only=False)
+        checkpoint = torch.load(path, map_location='cpu', weights_only=False)
         model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=5, mask=True, hidden_units=32)
         model.load_state_dict(checkpoint['state_dict_G'])
 
@@ -59,7 +59,7 @@ def load_model(name):
         model = torch.load(path, map_location='cpu', weights_only=False)["model"]
 
     elif name == 'ss-tsrn':
-        checkpoint = torch.load(path, map_location='cpu',weights_only=False)
+        checkpoint = torch.load(path, map_location='cpu', weights_only=False)
         model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=12, mask=True, hidden_units=64)
         model.load_state_dict(checkpoint['model'].state_dict())
 
@@ -69,9 +69,10 @@ def load_model(name):
 def infer_and_save(model, im_input, save_path):
     with torch.no_grad():
         output = model(im_input)
-    result = postprocess(output.cpu())
+    result = postprocess(output)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    cv2.imwrite(save_path, cv2.resize(result, (512, 128)))
+    result_resized = cv2.resize(result, (512, 128))
+    cv2.imwrite(save_path, cv2.cvtColor(result_resized, cv2.COLOR_RGB2BGR))  # 🔧 RGB to BGR
     print(f"Saved: {save_path}")
 
 def is_image_file(filename):
@@ -102,7 +103,7 @@ def run_on_dataset(dataset_folder, selected_models):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--models', nargs='+', default=['ss-tsrn', 'ss-srresnet', 'tpgsr'],
+    parser.add_argument('--models', nargs='+', default=['ss-srresnet'],
                         help="Models to run: ss-tsrn, ss-srresnet, tpgsr")
     parser.add_argument('--dataset', type=str, default=R"D:\Researches\SR\FirstPaperCode\OCR\Benchmark_ocr\dataset\TextZoom_testeasy\LR_images",
                         help="Path to dataset folder containing LR images")

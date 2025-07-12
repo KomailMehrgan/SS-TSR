@@ -1,0 +1,40 @@
+------------ Options -------------
+exp_name: None-ResNet-None-Attn-Seed512
+train_data: ./dataset_prepration/result_train
+valid_data: ./dataset_prepration/result_val
+manualSeed: 512
+workers: 0
+batch_size: 64
+num_iter: 200000
+valInterval: 100
+saved_model: 
+FT: True
+adam: True
+lr: 0.0002
+beta1: 0.9
+rho: 0.95
+eps: 1e-08
+grad_clip: 5
+baiduCTC: False
+select_data: ['/']
+batch_ratio: ['1']
+total_data_usage_ratio: 1.0
+batch_max_length: 35
+imgH: 32
+imgW: 128
+rgb: True
+character: 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~۰۱۲۳۴۵۶۷۸۹
+sensitive: True
+PAD: False
+data_filtering_off: False
+Transformation: None
+FeatureExtraction: ResNet
+SequenceModeling: None
+Prediction: Attn
+num_fiducial: 20
+input_channel: 3
+output_channel: 512
+hidden_size: 256
+num_gpu: 1
+num_class: 106
+---------------------------------------
