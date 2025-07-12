@@ -1,6 +1,12 @@
-SS-TSNR
+SS-TSNR -> 199
 hard = 54.638
 easy = 79.265
 medium = 64.020
 
 
+
+
+SS-TSNR -> 176
+easy = 77.254
+medium = 65.178
+hard = 52.851
