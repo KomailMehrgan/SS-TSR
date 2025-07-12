@@ -116,9 +116,9 @@ def run_on_dataset(dataset_folder, selected_models):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--models', nargs='+', default=['ss-srcnn'],
+    parser.add_argument('--models', nargs='+', default=['ss-rdn'],
                         help="Models to run: ss-tsrn, ss-srresnet, tpgsr,ss-rdn, ss-srcnn" )
-    parser.add_argument('--dataset', type=str, default=R"D:\Researches\SR\FirstPaperCode\OCR\Benchmark_ocr\dataset\TextZoom_testeasy\LR_images",
+    parser.add_argument('--dataset', type=str, default=R"D:\Researches\SR\FirstPaperCode\OCR\Benchmark_ocr\dataset\TextZoom_testMedium\LR_images",
                         help="Path to dataset folder containing LR images")
     args = parser.parse_args()
 

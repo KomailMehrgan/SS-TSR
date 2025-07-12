@@ -125,7 +125,7 @@ def main(selected_models, image_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--models', nargs='+', default=['ss-srresnet'],
+    parser.add_argument('--models', nargs='+', default=['ss-rdn'],
                         help="Which models to run: ss-srresnet, ss-tsrn, tpgsr, ss-rdn, ss-srcnn")
     parser.add_argument('--image', default='tets_images/lrTZtesthard_63.png',
                         help="Path to input image")
