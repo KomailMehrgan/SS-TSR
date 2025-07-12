@@ -10,6 +10,7 @@ from torch.serialization import add_safe_globals
 
 from Network.srresnet import _NetG
 from model.tsrn import TSRN
+from model.rdn import RDN
 
 # Trust saved architectures
 add_safe_globals([_NetG, TSRN])
@@ -18,7 +19,8 @@ add_safe_globals([_NetG, TSRN])
 MODEL_PATHS = {
     'ss-srresnet': 'back_up_models/SR/SS-srresnet.pth',
     'ss-tsrn': 'back_up_models/SR/SS-tsnr.pth',
-    'tpgsr': 'back_up_models/SR/TPGSR.pth'
+    'tpgsr': 'back_up_models/SR/TPGSR.pth',
+    'ss-rdn' : 'back_up_models/SR/SS-rdn.pth'
 }
 
 def preprocess(image_path, model_name):
@@ -62,6 +64,10 @@ def load_model(name):
         checkpoint = torch.load(path, map_location='cpu', weights_only=False)
         model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=12, mask=True, hidden_units=64)
         model.load_state_dict(checkpoint['model'].state_dict())
+    elif name == 'ss-rdn':
+        checkpoint = torch.load(path, map_location='cpu', weights_only=False)
+        model = RDN()
+        model.load_state_dict(checkpoint['model'].state_dict())
 
     model.eval()
     return model
@@ -103,8 +109,8 @@ def run_on_dataset(dataset_folder, selected_models):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--models', nargs='+', default=['ss-srresnet'],
-                        help="Models to run: ss-tsrn, ss-srresnet, tpgsr")
+    parser.add_argument('--models', nargs='+', default=['ss-rdn'],
+                        help="Models to run: ss-tsrn, ss-srresnet, tpgsr,ss-rdn")
     parser.add_argument('--dataset', type=str, default=R"D:\Researches\SR\FirstPaperCode\OCR\Benchmark_ocr\dataset\TextZoom_testeasy\LR_images",
                         help="Path to dataset folder containing LR images")
     args = parser.parse_args()

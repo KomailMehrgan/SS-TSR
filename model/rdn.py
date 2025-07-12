@@ -52,7 +52,7 @@ class RDB(nn.Module):
 
 # Residual Dense Network
 class RDN(nn.Module):
-    def __init__(self, nChannel=3, nDenselayer=6, nFeat=64, scale_factor=2, growthRate=32):
+    def __init__(self, nChannel=3, nDenselayer=12, nFeat=64, scale_factor=2, growthRate=32):
         super(RDN, self).__init__()
 
         # F-1
