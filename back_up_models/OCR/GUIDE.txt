@@ -1,0 +1,9 @@
+!pip install gdown
+!gdown --id 1e7z4Wy0nf3ec22fZVN2A63xzDAVR7A2T
+
+
+sudo apt-get update
+sudo apt-get install unrar -y
+
+unrar x FirstPaperCode_portable.rar
+
