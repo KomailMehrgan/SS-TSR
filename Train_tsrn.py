@@ -188,12 +188,13 @@ def train(data_loader, optimizerG, netSR, netOCR, mse_criterion, epoch, metrics,
 
         img_loss = mse_criterion(realImage, SrImage_img)
 
-        if SrImage_img.shape[1] == 3:
-            SrImage_img_ocr = SrImage_img.mean(dim=1, keepdim=True)
-        loss_ocr = ocr_processor.process(SrImage_img_ocr, ocr_label)
+        # if SrImage_img.shape[1] == 3:
+        #     SrImage_img_ocr = SrImage_img.mean(dim=1, keepdim=True)
+        # loss_ocr = ocr_processor.process(SrImage_img_ocr, ocr_label)
 
         # Calculate the total loss
-        loss = (img_loss * initial_img_weight + loss_ocr * initial_ocr_weight) / accumulation_steps
+        # loss = (img_loss * initial_img_weight + loss_ocr * initial_ocr_weight) / accumulation_steps
+        loss = (img_loss * initial_img_weight) / accumulation_steps
         loss.backward()
 
         img_loss_list.append(img_loss.item())

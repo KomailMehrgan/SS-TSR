@@ -21,7 +21,7 @@ import cv2
 # --- Argument Parser Setup ---
 parser = argparse.ArgumentParser(description="PyTorch SRResNet Ablation Study")
 parser.add_argument("--batchSize", type=int, default=32, help="training batch size")
-parser.add_argument("--nEpochs", type=int, default=50, help="number of epochs to train for")
+parser.add_argument("--nEpochs", type=int, default=250, help="number of epochs to train for")
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
 parser.add_argument("--lr", type=float, default=0.0001, help="learning rate, default=0.0001")
 parser.add_argument("--step", type=int, default=1000, help="Learning rate decay step")
@@ -41,7 +41,7 @@ def run_ablation_study():
     print(opt)
 
     # Define the weights to be tested in the ablation study
-    ablation_weights = [1, 0.5, 0.1, 0.01, 0.005, 0.001,0]
+    ablation_weights = [ 0,0.001,1]
 
     # --- Device Configuration ---
     device = torch.device("cuda" if opt.cuda and torch.cuda.is_available() else "cpu")
@@ -64,7 +64,7 @@ def run_ablation_study():
     sr_data_path = "datasets/data"
 
     # 1. Choose a subset of the total dataset (e.g., 2% of images)
-    full_subset = DatasetFromImages(sr_data_path, scale=0.01)
+    full_subset = DatasetFromImages(sr_data_path, scale=0.007)
     print(f"Loaded a subset with {len(full_subset)} images.")
 
     # 2. Split this subset into training (90%) and validation (10%)
