@@ -3,34 +3,31 @@ import numpy as np
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
-from model.tsrn import TSRN
+from Network.srresnet import _NetG
 from torch.utils.data import DataLoader, random_split
 from OCR.model import ModelOCR
 from OCR.utils import AttnLabelConverter
 from OCR.ocr_loss import OCRProcessor
-from dataset_prepration_mask import DatasetFromImages
+from dataset_prepration import DatasetFromImages
 import random
 import os
 import torch
 import pandas as pd
 import string
-import time
 from datetime import datetime
 import matplotlib.pyplot as plt
 import cv2
 
 # --- Argument Parser Setup ---
-parser = argparse.ArgumentParser(description="PyTorch TSRN Ablation Study")
+parser = argparse.ArgumentParser(description="PyTorch SRResNet Ablation Study")
 parser.add_argument("--batchSize", type=int, default=32, help="training batch size")
-parser.add_argument("--nEpochs", type=int, default=250, help="number of epochs to train for")
+parser.add_argument("--nEpochs", type=int, default=50, help="number of epochs to train for")
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
 parser.add_argument("--lr", type=float, default=0.0001, help="learning rate, default=0.0001")
 parser.add_argument("--step", type=int, default=1000, help="Learning rate decay step")
 parser.add_argument("--cuda", action="store_false", help="Use cuda? Disables CUDA if present.")
-parser.add_argument("--resume", default="", type=str, help="Path to checkpoint (default: none)")
 parser.add_argument("--start-epoch", default=1, type=int, help="Manual epoch number (useful on restarts)")
 parser.add_argument("--threads", type=int, default=4, help="Number of threads for data loader")
-parser.add_argument("--pretrained", default="", type=str, help="Path to pretrained model (default: none)")
 parser.add_argument("--gpus", default="0", type=str, help="GPU ids (default: 0)")
 
 
@@ -40,11 +37,11 @@ def run_ablation_study():
     Main function to set up and run the ablation study.
     """
     opt = parser.parse_args()
-    print("--- Starting Ablation Study ---")
+    print("--- Starting SRResNet Ablation Study ---")
     print(opt)
 
     # Define the weights to be tested in the ablation study
-    ablation_weights = [1, 0.5, 0.1, 0.01, 0.005, 0.001]
+    ablation_weights = [1, 0.5, 0.1, 0.01, 0.005, 0.001,0]
 
     # --- Device Configuration ---
     device = torch.device("cuda" if opt.cuda and torch.cuda.is_available() else "cpu")
@@ -55,7 +52,7 @@ def run_ablation_study():
         print("Using CPU.")
 
     # --- Reproducibility ---
-    # Set a fixed seed for dataset splitting to ensure fairness
+    # Set a fixed seed for dataset splitting and model initialization to ensure fairness
     reproducibility_seed = 42
     torch.manual_seed(reproducibility_seed)
     if device.type == "cuda":
@@ -67,7 +64,7 @@ def run_ablation_study():
     sr_data_path = "datasets/data"
 
     # 1. Choose a subset of the total dataset (e.g., 2% of images)
-    full_subset = DatasetFromImages(sr_data_path, scale=0.025)
+    full_subset = DatasetFromImages(sr_data_path, scale=0.01)
     print(f"Loaded a subset with {len(full_subset)} images.")
 
     # 2. Split this subset into training (90%) and validation (10%)
@@ -108,7 +105,7 @@ def run_ablation_study():
 
     # --- Main Ablation Loop ---
     start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    parent_folder = os.path.join("ablation_results", start_time)
+    parent_folder = os.path.join("ablation_results_srresnet", start_time)
     os.makedirs(parent_folder, exist_ok=True)
     print(f"\nResults will be saved in: {parent_folder}")
 
@@ -119,12 +116,9 @@ def run_ablation_study():
         run_folder = os.path.join(parent_folder, f"weight_{ocr_weight}")
         os.makedirs(run_folder, exist_ok=True)
 
-        # --- Re-initialize TSRN Model and Optimizer for a fair trial ---
+        # --- Re-initialize Generator Model and Optimizer for a fair trial ---
         torch.manual_seed(reproducibility_seed)  # Ensure model weights start the same
-        netSR = TSRN(
-            scale_factor=2, width=128, height=32, STN=True,
-            srb_nums=3, mask=True, hidden_units=32
-        ).to(device)
+        netSR = _NetG(num_channels=64).to(device)
 
         optimizerG = torch.optim.AdamW(netSR.parameters(), lr=opt.lr, weight_decay=1e-5)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizerG, step_size=opt.step, gamma=0.1)
@@ -151,6 +145,7 @@ def run_ablation_study():
 
             if epoch % 10 == 0:  # Save checkpoint every 10 epochs
                 save_checkpoint(netSR, epoch, run_folder)
+                test_one_image(netSR, epoch, run_folder)
 
         print(f"{'=' * 20} FINISHED RUN FOR OCR WEIGHT: {ocr_weight} {'=' * 20}")
 
@@ -168,14 +163,11 @@ def train_one_epoch(data_loader, netSR, ocr_processor, mse_criterion, optimizerG
 
         sr_image = netSR(input_img)
 
-        # Handle 4-channel output (if mask is present)
-        sr_image_rgb = sr_image[:, :3, :, :] if sr_image.shape[1] == 4 else sr_image
-
         # Image Reconstruction Loss
-        img_loss = mse_criterion(real_img, sr_image_rgb)
+        img_loss = mse_criterion(real_img, sr_image)
 
         # OCR Loss
-        sr_image_gray = sr_image_rgb.mean(dim=1, keepdim=True)
+        sr_image_gray = sr_image.mean(dim=1, keepdim=True)
         ocr_loss = ocr_processor.process(sr_image_gray, ocr_label)
 
         # Total Loss with current OCR weight
@@ -189,7 +181,7 @@ def train_one_epoch(data_loader, netSR, ocr_processor, mse_criterion, optimizerG
             optimizerG.step()
             optimizerG.zero_grad()
 
-        if iteration % 50 == 0:
+        if iteration % 10 == 0:
             print(f"Epoch [{epoch}/{opt.nEpochs}], Iter [{iteration}/{len(data_loader)}], "
                   f"Img Loss: {img_loss.item():.4f}, OCR Loss: {ocr_loss.item():.4f}")
 
@@ -210,11 +202,10 @@ def validate_one_epoch(data_loader, netSR, ocr_processor, mse_criterion, epoch, 
             input_img, real_img = input_img.to(device), real_img.to(device)
 
             sr_image = netSR(input_img)
-            sr_image_rgb = sr_image[:, :3, :, :] if sr_image.shape[1] == 4 else sr_image
 
-            img_loss = mse_criterion(real_img, sr_image_rgb)
+            img_loss = mse_criterion(real_img, sr_image)
 
-            sr_image_gray = sr_image_rgb.mean(dim=1, keepdim=True)
+            sr_image_gray = sr_image.mean(dim=1, keepdim=True)
             ocr_loss = ocr_processor.process(sr_image_gray, ocr_label)
 
             img_loss_list.append(img_loss.item())
@@ -230,7 +221,8 @@ def save_checkpoint(model, epoch, save_folder):
     checkpoint_dir = os.path.join(save_folder, "checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
     model_out_path = os.path.join(checkpoint_dir, f"model_epoch_{epoch}.pth")
-    state = {"epoch": epoch, "model": model.state_dict()}
+    # Save the model's state_dict, which is more portable
+    state = {"epoch": epoch, "model_state_dict": model.state_dict()}
     torch.save(state, model_out_path)
     print(f"Checkpoint saved to {model_out_path}")
 
@@ -266,6 +258,44 @@ def save_and_plot_metrics(metrics, save_folder):
     fig.suptitle(f"Metrics for {os.path.basename(save_folder)}", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(plot_path)
+    plt.close()
+
+
+def test_one_image(netSR, epoch, save_folder):
+    im_input_org = cv2.imread("tets_images/test.png")
+    if im_input_org is None:
+        print("Warning: Could not read test image 'tets_images/test.png'. Skipping test image generation.")
+        return
+
+    device = next(netSR.parameters()).device
+
+    # Prepare the input image
+    im_input = cv2.cvtColor(im_input_org, cv2.COLOR_BGR2RGB)  # Matplotlib uses RGB
+    im_input = im_input.transpose(2, 0, 1)
+    im_input = im_input.reshape(1, *im_input.shape)
+    im_input = torch.from_numpy(im_input / 255.).float().to(device)
+
+    netSR.eval()
+    with torch.no_grad():
+        out = netSR(im_input)
+
+    im_h = out.detach().cpu().numpy()[0]
+    im_h = np.clip(im_h * 255., 0, 255).astype(np.uint8)
+    im_h = im_h.transpose(1, 2, 0)
+
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.imshow(im_input_org)
+    plt.title("Original Image")
+    plt.axis('off')
+    plt.subplot(1, 2, 2)
+    plt.imshow(im_h)
+    plt.title("Super-Resolved Image")
+    plt.axis('off')
+
+    output_dir = os.path.join(save_folder, "test_outputs")
+    os.makedirs(output_dir, exist_ok=True)
+    plt.savefig(os.path.join(output_dir, f"test_result_epoch_{epoch}.png"))
     plt.close()
 
 

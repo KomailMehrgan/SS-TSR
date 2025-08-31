@@ -44,7 +44,7 @@ def main():
     print(opt)
 
     start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    parent_folder = os.path.join("back_up_models/SR/RES", start_time,"_TSRN")
+    parent_folder = os.path.join("RES", start_time,"_TSRN")
     os.makedirs(parent_folder, exist_ok=True)
 
     device = torch.device("cuda" if opt.cuda and torch.cuda.is_available() else "cpu")
