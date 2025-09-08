@@ -20,7 +20,7 @@ import cv2
 
 # --- Argument Parser Setup ---
 parser = argparse.ArgumentParser(description="PyTorch SRResNet Ablation Study")
-parser.add_argument("--batchSize", type=int, default=32, help="training batch size")
+parser.add_argument("--batchSize", type=int, default=128, help="training batch size")
 parser.add_argument("--nEpochs", type=int, default=250, help="number of epochs to train for")
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
 parser.add_argument("--lr", type=float, default=0.0001, help="learning rate, default=0.0001")

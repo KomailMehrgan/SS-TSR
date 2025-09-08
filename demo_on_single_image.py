@@ -19,8 +19,8 @@ add_safe_globals([_NetG, TSRN])
 
 # Model checkpoint paths
 MODEL_PATHS = {
-    'ss-srresnet': 'back_up_models/SR/SS-srresnet.pth',
-    'ss-tsrn': 'back_up_models/SR/SS-tsnr.pth',
+    'ss-srresnet': 'back_up_models/SR/srresnet/ss-srresnet-490.pth',
+    'ss-tsrn': 'back_up_models/SR/ss-tsrn/srgan_model_epoch_174.pth',
     'tpgsr': 'back_up_models/SR/TPGSR.pth',
     'ss-rdn': 'back_up_models/SR/SS-rdn.pth',
     'ss-srcnn': 'back_up_models/SR/SS-srcnn.pth'
@@ -125,9 +125,9 @@ def main(selected_models, image_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--models', nargs='+', default=['ss-rdn'],
+    parser.add_argument('--models', nargs='+', default=['tpgsr'],
                         help="Which models to run: ss-srresnet, ss-tsrn, tpgsr, ss-rdn, ss-srcnn")
-    parser.add_argument('--image', default='tets_images/lrTZtesthard_63.png',
+    parser.add_argument('--image', default='a.png',
                         help="Path to input image")
     args = parser.parse_args()
 
