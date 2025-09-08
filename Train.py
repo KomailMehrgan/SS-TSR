@@ -55,11 +55,11 @@ def main():
     # --- Training Mode Arguments ---
     parser.add_argument('--ocr_weight', type=float, default=0.01,
                         help='Weight for the OCR loss in a single training run.')
-    parser.add_argument('--ablation_weights', default=[0,0.002], type=float,
+    parser.add_argument('--ablation_weights', default=[0,0.001,0.0001], type=float,
                         help='A list of OCR weights for an ablation study. Overrides --ocr_weight.')
 
     # --- Dataset and Dataloader Arguments ---
-    parser.add_argument("--scale", type=float, default=0.1, help="Fraction of the dataset to use (e.g., 0.1 for 10%).")
+    parser.add_argument("--scale", type=float, default=0.01, help="Fraction of the dataset to use (e.g., 0.1 for 10%).")
     parser.add_argument("--val_split", type=float, default=0.1,
                         help="Fraction of the data to use for validation (e.g., 0.1 for 10%).")
     parser.add_argument("--batchSize", type=int, default=2, help="Training batch size.")
@@ -132,10 +132,17 @@ def main():
         name = k[7:] if k.startswith('module.') else k
         new_state_dict[name] = v
     netOCR.load_state_dict(new_state_dict)
-    # Freeze OCR but keep train for CuDNN
+    # 1. Freeze OCR parameters as before
     for p in netOCR.parameters():
         p.requires_grad = False
+
+    # 2. Set the entire model to TRAIN mode (to satisfy the RNN)
     netOCR.train()
+
+    # 3. CRITICAL: Manually set all BatchNorm layers to EVAL mode for stability
+    for module in netOCR.modules():
+        if isinstance(module, torch.nn.BatchNorm2d):
+            module.eval()
 
     character = string.printable[:-6]
     converter = AttnLabelConverter(character)
