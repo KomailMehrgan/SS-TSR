@@ -20,7 +20,7 @@ add_safe_globals([_NetG, TSRN])
 # Model checkpoint paths
 MODEL_PATHS = {
     'ss-srresnet': 'back_up_models/SR/srresnet/ss-srresnet-490.pth',
-    'ss-tsrn': 'back_up_models/SR/ss-tsrn/srgan_model_epoch_174.pth',
+    'ss-tsrn': 'experiments/tsrn_2025-09-09_12-28-00_dynamic_weights/checkpoints/model_epoch_100.pth',
     'tpgsr': 'back_up_models/SR/TPGSR.pth',
     'ss-rdn': 'back_up_models/SR/SS-rdn.pth',
     'ss-srcnn': 'back_up_models/SR/SS-srcnn.pth'
@@ -68,8 +68,11 @@ def load_model(name):
 
     elif name == 'ss-tsrn':
         checkpoint = torch.load(path, map_location='cpu', weights_only=False)
-        model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=12, mask=True, hidden_units=64)
-        model.load_state_dict(checkpoint['model'].state_dict())
+        model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=5, mask=True, hidden_units=64)
+        # --- FINAL FIX ---
+        # Access the weights stored under the 'model_state_dict' key
+        model.load_state_dict(checkpoint['model_state_dict'])
+        # model.load_state_dict(checkpoint['model'].state_dict())
 
     elif name == 'ss-rdn':
         checkpoint = torch.load(path, map_location='cpu', weights_only=False)
@@ -125,9 +128,9 @@ def main(selected_models, image_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--models', nargs='+', default=['tpgsr'],
+    parser.add_argument('--models', nargs='+', default=['ss-tsrn'],
                         help="Which models to run: ss-srresnet, ss-tsrn, tpgsr, ss-rdn, ss-srcnn")
-    parser.add_argument('--image', default='a.png',
+    parser.add_argument('--image', default='tets_images/lrTZtesteasy_1222.png',
                         help="Path to input image")
     args = parser.parse_args()
 
