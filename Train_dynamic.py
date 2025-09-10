@@ -23,10 +23,10 @@ from model.srcnn import SRCNN
 from OCR.model import ModelOCR
 from OCR.utils import AttnLabelConverter
 from OCR.ocr_loss import OCRProcessor
-from data_set_from_pt import DatasetFromPT
+from datasets.data_set_from_pt import DatasetFromPT
 
 # --- Import the new loss balancer module ---
-from dynamicloss import DynamicLossWeighter, DTP, PCGrad
+from dynamic_weights import DynamicLossWeighter, DTP, PCGrad
 
 
 def get_model(arch_name, device):
@@ -58,7 +58,7 @@ def main():
                         help="Path to the preprocessed .pt dataset file.")
 
     # --- Dataset and Dataloader Arguments ---
-    parser.add_argument("--scale", type=float, default=0.05, help="Fraction of the dataset to use (e.g., 0.1 for 10%).")
+    parser.add_argument("--scale", type=float, default=0.005, help="Fraction of the dataset to use (e.g., 0.1 for 10%).")
     parser.add_argument("--val_split", type=float, default=0.1,
                         help="Fraction of the data to use for validation (e.g., 0.1 for 10%).")
     parser.add_argument("--batchSize", type=int, default=4, help="Training batch size.")
@@ -71,7 +71,7 @@ def main():
     parser.add_argument("--step", type=int, default=500, help="Learning rate decay step.")
 
     # --- Loss Balancer Arguments ---
-    parser.add_argument('--loss_weigher', type=str, default='pcgrad',
+    parser.add_argument('--loss_weigher', type=str, default='uncert',
                         choices=['fixed', 'uncert', 'pcgrad', 'dtp'],
                         help='Method for balancing losses.')
     parser.add_argument('--weighter_lr_ratio', type=float, default=10.0,

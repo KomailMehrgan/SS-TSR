@@ -21,7 +21,7 @@ from model.srcnn import SRCNN
 from OCR.model import ModelOCR
 from OCR.utils import AttnLabelConverter
 from OCR.ocr_loss import OCRProcessor
-from data_set_from_pt import DatasetFromPT  # Using the efficient .pt loader
+from datasets.data_set_from_pt import DatasetFromPT  # Using the efficient .pt loader
 
 
 def get_model(arch_name, device):

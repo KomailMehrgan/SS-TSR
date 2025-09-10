@@ -23,7 +23,7 @@ from model.srcnn import SRCNN
 from OCR.model import ModelOCR
 from OCR.utils import AttnLabelConverter
 from OCR.ocr_loss import OCRProcessor
-from data_set_from_pt import DatasetFromPT
+from datasets.data_set_from_pt import DatasetFromPT
 
 
 def get_model(arch_name, device):
@@ -124,9 +124,17 @@ def main():
         name = k[7:] if k.startswith('module.') else k
         new_state_dict[name] = v
     netOCR.load_state_dict(new_state_dict)
+    # 1. Freeze OCR parameters as before
     for p in netOCR.parameters():
         p.requires_grad = False
+
+    # 2. Set the entire model to TRAIN mode (to satisfy the RNN)
     netOCR.train()
+
+    # 3. CRITICAL: Manually set all BatchNorm layers to EVAL mode for stability
+    for module in netOCR.modules():
+        if isinstance(module, torch.nn.BatchNorm2d):
+            module.eval()
 
     character = string.printable[:-6]
     converter = AttnLabelConverter(character)

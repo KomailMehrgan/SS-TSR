@@ -23,9 +23,9 @@ def preprocess_and_save(data_path, output_file, batch_size=64):
     # Use DataLoader for efficient, multi-threaded loading from disk
     data_loader = DataLoader(
         dataset=image_dataset,
-        num_workers=4,
+        num_workers=1,
         batch_size=batch_size,
-        shuffle=False
+        shuffle=True
     )
 
     print(f"Found {len(image_dataset)} images to process.")

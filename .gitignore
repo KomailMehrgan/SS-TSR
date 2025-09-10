@@ -109,7 +109,7 @@ cython_debug/
 
 # Ignore model checkpoints (.pth files)
 *.pth
-
+*.pt
 # Logs
 *.log
 
@@ -128,3 +128,4 @@ Desktop.ini
 # Linux
 *~
 
+./experiments

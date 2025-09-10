@@ -9,7 +9,7 @@ from model.tsrn import TSRN
 from OCR.model import ModelOCR
 from OCR.utils import AttnLabelConverter
 from OCR.ocr_loss import OCRProcessor
-from data_set_from_pt import DatasetFromPT
+from datasets.data_set_from_pt import DatasetFromPT
 
 # ==== Setup ====
 device = "cuda" if torch.cuda.is_available() else "cpu"

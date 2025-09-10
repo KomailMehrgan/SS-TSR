@@ -66,9 +66,7 @@ class OCRProcessor:
             print(f"[3. TARGET] Target Tensor (Sample 0) before replacement:\n{target[0]}")
 
         # Replace the [GO] token (index 0) with the ignore_index token (index 1)
-        target_after_replace = torch.where(
-            target == 0, torch.tensor(1, device=target.device), target
-        )
+        target_after_replace = torch.where(target == 0, torch.tensor(1, device=target.device), target)
 
         if self._print_flag:
             print("[3. TARGET] Replaced token 0 with 1 (the ignore_index).")

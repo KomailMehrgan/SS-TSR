@@ -1,4 +1,4 @@
-# dynamicloss.py
+# dynamic_weights.py
 
 import torch
 import torch.nn as nn
