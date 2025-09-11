@@ -30,7 +30,7 @@ def get_model(arch_name, device):
     arch_name = arch_name.lower()
 
     if arch_name == 'tsrn':
-        model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=5, mask=True, hidden_units=64)
+        model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=12, mask=True, hidden_units=64)
     elif arch_name == 'srresnet':
         model = SRResNet(num_channels=64)
     elif arch_name == 'rdn':
@@ -55,19 +55,19 @@ def main():
     # --- Training Mode Arguments ---
     parser.add_argument('--ocr_weight', type=float, default=0.01,
                         help='Weight for the OCR loss in a single training run.')
-    parser.add_argument('--ablation_weights', default=[0,0.001,0.0001], type=float,
+    parser.add_argument('--ablation_weights', default=[0,0.0001,0.001,0.01,0.1,1], type=float,
                         help='A list of OCR weights for an ablation study. Overrides --ocr_weight.')
 
     # --- Dataset and Dataloader Arguments ---
-    parser.add_argument("--scale", type=float, default=0.01, help="Fraction of the dataset to use (e.g., 0.1 for 10%).")
+    parser.add_argument("--scale", type=float, default=1, help="Fraction of the dataset to use (e.g., 0.1 for 10%).")
     parser.add_argument("--val_split", type=float, default=0.1,
                         help="Fraction of the data to use for validation (e.g., 0.1 for 10%).")
-    parser.add_argument("--batchSize", type=int, default=2, help="Training batch size.")
-    parser.add_argument("--accumulation", type=int, default=4, help="accumulation")
+    parser.add_argument("--batchSize", type=int, default=128, help="Training batch size.")
+    parser.add_argument("--accumulation", type=int, default=1, help="accumulation")
     parser.add_argument("--threads", type=int, default=0, help="Number of threads for data loader.")
 
     # --- Training Hyperparameters ---
-    parser.add_argument("--nEpochs", type=int, default=100, help="Number of epochs to train for.")
+    parser.add_argument("--nEpochs", type=int, default=150, help="Number of epochs to train for.")
     parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate.")
     parser.add_argument("--step", type=int, default=500, help="Learning rate decay step.")
 

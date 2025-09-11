@@ -57,14 +57,14 @@ def main():
 
     # --- Training Mode Arguments ---
     parser.add_argument('--ocr_weight', type=float, default=0.01, help='Weight for the OCR loss.')
-    parser.add_argument('--ablation_weights', default=[10, 1, 0.1, 0.01, 0.002, 0], type=float, nargs='+',
+    parser.add_argument('--ablation_weights', default=[0,0.001,0.01,0.1,1], type=float, nargs='+',
                         help='List of OCR weights for ablation study.')
 
     # --- Dataset and Dataloader Arguments ---
-    parser.add_argument("--scale", type=float, default=0.1, help="Fraction of the dataset to use.")
+    parser.add_argument("--scale", type=float, default=1, help="Fraction of the dataset to use.")
     parser.add_argument("--val_split", type=float, default=0.1, help="Fraction of data for validation.")
-    parser.add_argument("--batchSize", type=int, default=16, help="Training batch size.")
-    parser.add_argument("--accumulation_steps", type=int, default=10,
+    parser.add_argument("--batchSize", type=int, default=128, help="Training batch size.")
+    parser.add_argument("--accumulation_steps", type=int, default=1,
                         help="Number of steps to accumulate gradients before updating weights.")
     parser.add_argument("--threads", type=int, default=1, help="Number of threads for data loader.")
 
