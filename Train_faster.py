@@ -69,7 +69,7 @@ def main():
     parser.add_argument("--threads", type=int, default=1, help="Number of threads for data loader.")
 
     # --- Training Hyperparameters ---
-    parser.add_argument("--nEpochs", type=int, default=151, help="Number of epochs to train for.")
+    parser.add_argument("--nEpochs", type=int, default=200, help="Number of epochs to train for.")
     parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate.")
     parser.add_argument("--step", type=int, default=1000, help="Learning rate decay step.")
 
@@ -222,7 +222,7 @@ def train_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, optim
         if (iter_idx % opt.accumulation_steps == 0) or (iter_idx == len(data_loader)):
             # --- START OF FIX ---
             scaler.unscale_(optimizer)  # Unscales the gradients in-place
-            torch.nn.utils.clip_grad_norm_(netSR.parameters(), max_norm=2.0)  # Now clip the correct gradients
+            torch.nn.utils.clip_grad_norm_(netSR.parameters(), max_norm=1.0)  # Now clip the correct gradients
             # --- END OF FIX ---
             scaler.step(optimizer)
             scaler.update()
@@ -234,7 +234,7 @@ def train_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, optim
 
 
     print(
-        f"--- Epoch {epoch} Validation Summary --- Img Loss: {np.mean(img_losses)['img']:.4f}, OCR Loss: {np.mean(ocr_losses)['ocr']:.4f}")
+    f"--- Epoch {epoch} Training Summary --- Img Loss: {np.mean(img_losses):.4f}, OCR Loss: {np.mean(ocr_losses):.4f}")
     return {'img': np.mean(img_losses), 'ocr': np.mean(ocr_losses)}
 
 
@@ -257,7 +257,7 @@ def validate_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, ep
             ocr_losses.append(ocr_loss.item())
 
     print(
-        f"--- Epoch {epoch} Training   Summary --- Img Loss: {np.mean(img_losses)['img']:.4f}, OCR Loss: {np.mean(ocr_losses)['ocr']:.4f}")
+    f"--- Epoch {epoch} Validation Summary --- Img Loss: {np.mean(img_losses):.4f}, OCR Loss: {np.mean(ocr_losses):.4f}")
     return {'img': np.mean(img_losses), 'ocr': np.mean(ocr_losses)}
 
 
