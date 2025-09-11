@@ -231,9 +231,7 @@ def train_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, optim
         img_losses.append(img_loss.item())
         ocr_losses.append(ocr_loss.item())
 
-        if iter_idx % 50 == 0:
-            print(
-                f"Epoch [{epoch}], Iter [{iter_idx}/{len(data_loader)}], Img: {img_loss.item():.4f}, OCR: {ocr_loss.item():.4f}")
+
 
     print(
         f"--- Epoch {epoch} Validation Summary --- Img Loss: {np.mean(img_losses)['img']:.4f}, OCR Loss: {np.mean(ocr_losses)['ocr']:.4f}")
