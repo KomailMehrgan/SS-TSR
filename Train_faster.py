@@ -100,7 +100,7 @@ def main():
     full_dataset = DatasetFromPT(opt.dataset)
     total_size = len(full_dataset)
     subset_size = int(total_size * opt.scale)
-    indices = torch.randperm(total_size).tolist()[:subset_size]
+    indices = list(range(total_size))[:subset_size]
     study_subset = Subset(full_dataset, indices)
     val_size = int(opt.val_split * len(study_subset))
     train_size = len(study_subset) - val_size

@@ -101,7 +101,7 @@ def main():
 
     total_size = len(full_dataset)
     subset_size = int(total_size * opt.scale)
-    indices = torch.randperm(total_size).tolist()[:subset_size]
+    indices = list(range(total_size))[:subset_size]
     study_subset = Subset(full_dataset, indices)
     print(f"Using a subset of {len(study_subset)} images ({opt.scale * 100:.1f}% of total).")
 
