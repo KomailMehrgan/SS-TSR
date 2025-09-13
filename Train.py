@@ -107,7 +107,8 @@ def main():
 
     val_size = int(opt.val_split * len(study_subset))
     train_size = len(study_subset) - val_size
-    train_dataset, val_dataset = random_split(study_subset, [train_size, val_size])
+    train_dataset = Subset(study_subset, range(train_size))
+    val_dataset = Subset(study_subset, range(train_size, len(study_subset)))
     print(f"Split into {len(train_dataset)} training and {len(val_dataset)} validation images.")
 
     train_loader = DataLoader(dataset=train_dataset, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True,

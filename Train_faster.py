@@ -104,7 +104,9 @@ def main():
     study_subset = Subset(full_dataset, indices)
     val_size = int(opt.val_split * len(study_subset))
     train_size = len(study_subset) - val_size
-    train_dataset, val_dataset = random_split(study_subset, [train_size, val_size])
+    train_dataset = Subset(study_subset, range(train_size))
+    val_dataset = Subset(study_subset, range(train_size, len(study_subset)))
+    
     train_loader = DataLoader(train_dataset, batch_size=opt.batchSize, shuffle=True, num_workers=opt.threads,
                               pin_memory=True, drop_last=True, persistent_workers=(opt.threads > 0))
     val_loader = DataLoader(val_dataset, batch_size=opt.batchSize, shuffle=False, num_workers=opt.threads,
