@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split, Subset
+from torch.utils.data import DataLoader, random_split, Subset, Dataset, ConcatDataset
 from collections import OrderedDict
 import os
 import torch
@@ -10,6 +10,8 @@ import pandas as pd
 import string
 from datetime import datetime
 import matplotlib.pyplot as plt
+import torchvision.transforms.functional as F
+from torchvision import transforms  # Added for easier access to InterpolationMode
 
 # --- Model Imports ---
 from model.tsrn import TSRN
@@ -24,60 +26,159 @@ from OCR.ocr_loss import OCRProcessor
 from datasets.data_set_from_pt import DatasetFromPT  # Using the efficient .pt loader
 
 
+# --- Data Augmentation Classes ---
+class JointRandomAugment:
+    """
+    Applies the same random augmentation to a pair of low-res and high-res images.
+    """
+
+    def __init__(self):
+        self.rot_params = transforms.RandomRotation.get_params([-10, 10])
+        self.brightness_factor = torch.empty(1).uniform_(0.6, 1.4).item()
+        self.swap_flag = torch.rand(1) < 0.5
+
+    def __call__(self, lr_img, hr_img):
+        lr_aug = F.rotate(lr_img, self.rot_params, interpolation=F.InterpolationMode.BILINEAR)
+        hr_aug = F.rotate(hr_img, self.rot_params, interpolation=F.InterpolationMode.BILINEAR)
+        lr_rgb = lr_aug[:3, :, :]
+        hr_rgb = hr_aug
+        lr_rgb = F.adjust_brightness(lr_rgb, self.brightness_factor)
+        hr_rgb = F.adjust_brightness(hr_rgb, self.brightness_factor)
+        if self.swap_flag:
+            lr_rgb = lr_rgb[[2, 1, 0], :, :]
+            hr_rgb = hr_rgb[[2, 1, 0], :, :]
+        lr_aug[:3, :, :] = lr_rgb
+        return lr_aug, hr_rgb
+
+
+class AugmentedDataset(Dataset):
+    """
+    A wrapper dataset that applies joint random augmentations on the fly.
+    """
+
+    def __init__(self, original_dataset):
+        self.original_dataset = original_dataset
+
+    def __len__(self):
+        return len(self.original_dataset)
+
+    def __getitem__(self, index):
+        input_img, real_img, ocr_label = self.original_dataset[index]
+        augmenter = JointRandomAugment()
+        aug_input, aug_real = augmenter(input_img, real_img)
+        return aug_input, aug_real, ocr_label
+
+
 def get_model(arch_name, device):
-    """Initializes and returns the specified model architecture."""
+    """Initializes and returns the model and its creation parameters."""
     print(f"===> Building model: {arch_name.upper()}")
     arch_name = arch_name.lower()
 
+    params = {}
+
     if arch_name == 'tsrn':
-        model = TSRN(scale_factor=2, width=128, height=32, STN=True, srb_nums=12, mask=True, hidden_units=64)
+        params = {
+            'scale_factor': 2, 'width': 128, 'height': 32,
+            'STN': True, 'srb_nums': 12, 'mask': True, 'hidden_units': 64
+        }
+        model = TSRN(**params)
     elif arch_name == 'srresnet':
-        model = SRResNet(num_channels=64)
+        params = {'num_channels': 64}
+        model = SRResNet(**params)
     elif arch_name == 'rdn':
-        model = RDN(scale_factor=2)
+        params = {'scale_factor': 2}
+        model = RDN(**params)
     elif arch_name == 'srcnn':
-        model = SRCNN(scale_factor=2)
+        params = {'scale_factor': 2}
+        model = SRCNN(**params)
     else:
         raise ValueError(f"Unknown architecture specified: {arch_name}")
 
-    return model.to(device)
+    return model.to(device), params
+
+
+def save_run_details(run_folder, opt, model, model_params, full_dataset, train_dataset, val_dataset,
+                     current_ocr_weight):
+    """Saves a comprehensive summary of the training run to a text file."""
+    summary_path = os.path.join(run_folder, 'run_summary.txt')
+
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    with open(summary_path, 'w') as f:
+        f.write("================ Training Run Summary ================\n\n")
+
+        f.write("--- Command-Line Arguments ---\n")
+        for key, value in sorted(vars(opt).items()):
+            f.write(f"{key:<22}: {value}\n")
+        f.write("\n")
+
+        f.write("--- Run-Specific Parameters ---\n")
+        f.write(f"{'current_ocr_weight':<22}: {current_ocr_weight}\n")
+        f.write("\n")
+
+        f.write("--- Dataset Information ---\n")
+        f.write(f"{'Full dataset size':<22}: {len(full_dataset)} samples\n")
+        f.write(f"{'Training samples':<22}: {len(train_dataset)} (after augmentation)\n")
+        f.write(f"{'Validation samples':<22}: {len(val_dataset)}\n")
+        f.write("\n")
+
+        f.write("--- Model Details ---\n")
+        f.write(f"{'Architecture':<22}: {opt.arch.upper()}\n")
+        f.write(f"{'Total parameters':<22}: {total_params:,}\n")
+        f.write(f"{'Trainable params':<22}: {trainable_params:,}\n")
+        f.write("\n")
+
+        f.write("--- Model Hyperparameters ---\n")
+        if model_params:
+            for key, value in model_params.items():
+                f.write(f"{key:<22}: {value}\n")
+        else:
+            f.write("No specific hyperparameters recorded.\n")
+        f.write("\n")
+
+        f.write("--- Optimizer & Scheduler ---\n")
+        f.write(f"{'Optimizer':<22}: AdamW\n")
+        f.write(f"{'Learning Rate (lr)':<22}: {opt.lr}\n")
+        f.write(f"{'Weight Decay':<22}: 1e-5 (hardcoded)\n")
+        f.write(f"{'LR Scheduler':<22}: StepLR\n")
+        f.write(f"{'LR Step Size':<22}: {opt.step}\n")
+        f.write(f"{'LR Decay Gamma':<22}: 0.1 (hardcoded)\n")
+        f.write("\n")
+
+        f.write("--- System Information ---\n")
+        f.write(f"{'PyTorch Version':<22}: {torch.__version__}\n")
+        if torch.cuda.is_available():
+            f.write(f"{'CUDA Version':<22}: {torch.version.cuda}\n")
+            f.write(f"{'GPU':<22}: {torch.cuda.get_device_name(0)}\n")
+        else:
+            f.write(f"{'Device':<22}: CPU\n")
+
+    print(f"Comprehensive run summary saved to {summary_path}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Comprehensive Training and Ablation Study Script for SR Models")
-
-    # --- Core Arguments ---
-    parser.add_argument('--arch', type=str, default="tsrn", choices=['tsrn', 'srresnet', 'rdn', 'srcnn'],
-                        help='Model architecture to train.')
-    parser.add_argument("--dataset", type=str, default="datasets/dataset.pt",
-                        help="Path to the preprocessed .pt dataset file.")
-
-    # --- Training Mode Arguments ---
-    parser.add_argument('--ocr_weight', type=float, default=0.01,
-                        help='Weight for the OCR loss in a single training run.')
-    parser.add_argument('--ablation_weights', default=[0,0.0001,0.001,0.01,0.1,1], type=float,
-                        help='A list of OCR weights for an ablation study. Overrides --ocr_weight.')
-
-    # --- Dataset and Dataloader Arguments ---
-    parser.add_argument("--scale", type=float, default=1, help="Fraction of the dataset to use (e.g., 0.1 for 10%).")
-    parser.add_argument("--val_split", type=float, default=0.1,
-                        help="Fraction of the data to use for validation (e.g., 0.1 for 10%).")
-    parser.add_argument("--batchSize", type=int, default=128, help="Training batch size.")
-    parser.add_argument("--accumulation", type=int, default=1, help="accumulation")
-    parser.add_argument("--threads", type=int, default=0, help="Number of threads for data loader.")
-
-    # --- Training Hyperparameters ---
-    parser.add_argument("--nEpochs", type=int, default=150, help="Number of epochs to train for.")
-    parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate.")
-    parser.add_argument("--step", type=int, default=500, help="Learning rate decay step.")
-
-    # --- System and Checkpoint Arguments ---
-    parser.add_argument("--cuda", action="store_false", help="Enable cuda training.")
-    parser.add_argument("--gpus", default="0", type=str, help="GPU ids (e.g. 0 or 0,1).")
-    parser.add_argument("--resume", default="", type=str, help="Path to checkpoint to resume from.")
-    parser.add_argument("--start-epoch", default=1, type=int, help="Manual epoch number (useful on restarts).")
-
+    # Arguments...
+    parser.add_argument('--arch', type=str, default="tsrn", choices=['tsrn', 'srresnet', 'rdn', 'srcnn'])
+    parser.add_argument("--dataset", type=str, default="datasets/dataset.pt")
+    parser.add_argument('--ocr_weight', type=float, default=0.01)
+    parser.add_argument('--ablation_weights', default=[0, 0.0001, 0.001, 0.01, 0.1, 1], type=float, nargs='+')
+    parser.add_argument("--scale", type=float, default=0.001)
+    parser.add_argument("--val_split", type=float, default=0.1)
+    parser.add_argument("--batchSize", type=int, default=2)
+    parser.add_argument("--accumulation", type=int, default=1)
+    parser.add_argument("--threads", type=int, default=0)
+    parser.add_argument("--aug", type=int, default=3)
+    parser.add_argument("--nEpochs", type=int, default=150)
+    parser.add_argument("--lr", type=float, default=0.0001)
+    parser.add_argument("--step", type=int, default=500)
+    parser.add_argument("--cuda", action="store_false")
+    parser.add_argument("--gpus", default="0", type=str)
+    parser.add_argument("--resume", default="", type=str)
+    parser.add_argument("--start-epoch", default=1, type=int)
     opt = parser.parse_args()
+
     print("--- Unified Training Script ---")
     print(opt)
 
@@ -88,7 +189,6 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpus
     else:
         print("Using CPU.")
-
     reproducibility_seed = 42
     torch.manual_seed(reproducibility_seed)
     if device.type == "cuda":
@@ -98,65 +198,60 @@ def main():
     # --- Dataset Loading and Splitting ---
     print("\n===> Loading preprocessed dataset...")
     full_dataset = DatasetFromPT(opt.dataset)
-
     total_size = len(full_dataset)
     subset_size = int(total_size * opt.scale)
     indices = list(range(total_size))[:subset_size]
     study_subset = Subset(full_dataset, indices)
     print(f"Using a subset of {len(study_subset)} images ({opt.scale * 100:.1f}% of total).")
-
     val_size = int(opt.val_split * len(study_subset))
     train_size = len(study_subset) - val_size
-    train_dataset = Subset(study_subset, range(train_size))
+    train_dataset_base = Subset(study_subset, range(train_size))
     val_dataset = Subset(study_subset, range(train_size, len(study_subset)))
-    print(f"Split into {len(train_dataset)} training and {len(val_dataset)} validation images.")
+    print(f"Split into {len(train_dataset_base)} training and {len(val_dataset)} validation images.")
+
+    # --- Augmentation Handling ---
+    if opt.aug > 1:
+        print(f"\n===> Applying augmentation. Multiplying training data by {opt.aug}x...")
+        original_train_dataset = train_dataset_base
+        augmented_datasets = [original_train_dataset]
+        for _ in range(opt.aug - 1):
+            augmented_datasets.append(AugmentedDataset(original_train_dataset))
+        train_dataset = ConcatDataset(augmented_datasets)
+        print(f"New training dataset size: {len(train_dataset)}")
+    else:
+        print("\n===> Augmentation disabled.")
+        train_dataset = train_dataset_base
 
     train_loader = DataLoader(dataset=train_dataset, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True,
                               drop_last=True, pin_memory=True)
     val_loader = DataLoader(dataset=val_dataset, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=False,
                             pin_memory=True)
 
-    # --- OCR Model Setup (Done Once) ---
+    # --- OCR Model Setup ---
     print("\n===> Building and loading OCR model...")
     from argparse import Namespace
     ocr_config = Namespace(Transformation='TPS', FeatureExtraction='ResNet', SequenceModeling='BiLSTM',
-                           Prediction='Attn',
-                           num_fiducial=20, input_channel=1, output_channel=512, hidden_size=256,
-                           num_class=96, imgH=32, imgW=100, batch_max_length=35,device=device)
+                           Prediction='Attn', num_fiducial=20, input_channel=1, output_channel=512,
+                           hidden_size=256, num_class=96, imgH=32, imgW=100, batch_max_length=35, device=device)
     netOCR = ModelOCR(ocr_config).to(device)
-
-    # Load OCR state dict safely
     state_dict = torch.load("back_up_models/OCR/TPS-ResNet-BiLSTM-Attn-case-sensitive.pth", map_location=device,
                             weights_only=True)
-    new_state_dict = OrderedDict()
-    for k, v in state_dict.items():
-        name = k[7:] if k.startswith('module.') else k
-        new_state_dict[name] = v
+    new_state_dict = OrderedDict((k[7:] if k.startswith('module.') else k, v) for k, v in state_dict.items())
     netOCR.load_state_dict(new_state_dict)
-    # 1. Freeze OCR parameters as before
     for p in netOCR.parameters():
         p.requires_grad = False
-
-    # 2. Set the entire model to TRAIN mode (to satisfy the RNN)
     netOCR.train()
-
-    # 3. CRITICAL: Manually set all BatchNorm layers to EVAL mode for stability
     for module in netOCR.modules():
         if isinstance(module, torch.nn.BatchNorm2d):
             module.eval()
-
     character = string.printable[:-6]
     converter = AttnLabelConverter(character)
     ocr_processor = OCRProcessor(netOCR, converter, device)
     mse_criterion = nn.MSELoss(reduction='mean').to(device)
 
     # --- Determine Training Mode ---
-    if opt.ablation_weights is not None:
-        weights_to_run = opt.ablation_weights
-        print(f"\n--- Starting Ablation Study for weights: {weights_to_run} ---")
-    else:
-        weights_to_run = [opt.ocr_weight]
-        print(f"\n--- Starting Single Training Run with OCR weight: {weights_to_run[0]} ---")
+    weights_to_run = opt.ablation_weights if opt.ablation_weights is not None else [opt.ocr_weight]
+    print(f"\n--- Starting Ablation Study for weights: {weights_to_run} ---")
 
     # --- Main Training Loop ---
     start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -167,37 +262,31 @@ def main():
     for ocr_weight in weights_to_run:
         run_identifier = f"weight_{ocr_weight}" if opt.ablation_weights is not None else "run"
         print(f"\n{'=' * 25} RUNNING: {run_identifier} {'=' * 25}")
-
         run_folder = os.path.join(parent_folder, run_identifier)
         os.makedirs(run_folder, exist_ok=True)
 
-        # Initialize model for a fair run
         torch.manual_seed(reproducibility_seed)
-        netSR = get_model(opt.arch, device)
+        netSR, model_params = get_model(opt.arch, device)
+
+        # Save comprehensive run details
+        save_run_details(run_folder, opt, netSR, model_params, full_dataset, train_dataset, val_dataset, ocr_weight)
 
         optimizer = torch.optim.AdamW(netSR.parameters(), lr=opt.lr, weight_decay=1e-5)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=opt.step, gamma=0.1)
-
-
         metrics = {'epoch': [], 'train_img_loss': [], 'train_ocr_loss': [], 'val_img_loss': [], 'val_ocr_loss': []}
 
         for epoch in range(opt.start_epoch, opt.nEpochs + 1):
             train_losses = train_one_epoch(opt, train_loader, netSR, ocr_processor, mse_criterion, optimizer, epoch,
-                                           device, ocr_weight,opt.accumulation)
+                                           device, ocr_weight, opt.accumulation)
             val_losses = validate_one_epoch(opt, val_loader, netSR, ocr_processor, mse_criterion, epoch, device,
                                             ocr_weight)
             scheduler.step()
-
-            # Log metrics
             metrics['epoch'].append(epoch)
             metrics['train_img_loss'].append(train_losses['img'])
             metrics['train_ocr_loss'].append(train_losses['ocr'])
             metrics['val_img_loss'].append(val_losses['img'])
             metrics['val_ocr_loss'].append(val_losses['ocr'])
             save_and_plot_metrics(metrics, run_folder)
-
-
-
             if epoch % 50 == 0:
                 save_checkpoint(netSR, epoch, run_folder)
 
@@ -205,73 +294,48 @@ def main():
 
 
 def train_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, optimizer, epoch, device, ocr_weight,
-                    accumulation_steps= 1):
+                    accumulation_steps=1):
     netSR.train()
     img_loss_list, ocr_loss_list = [], []
-
     optimizer.zero_grad()
     for iteration, batch in enumerate(data_loader, 1):
         input_img, real_img, ocr_label = batch
         input_img, real_img = input_img.to(device), real_img.to(device)
-
-        # Handle model-specific input requirements
-        if opt.arch == 'tsrn':
-            model_input = input_img  # TSRN uses the 4-channel input
-        else:
-            model_input = input_img[:, :3, :, :]  # Other models use 3-channel input
-
+        model_input = input_img if opt.arch == 'tsrn' else input_img[:, :3, :, :]
         sr_image = netSR(model_input)
-
-        # Handle model-specific output for loss calculation
         sr_image_rgb = sr_image[:, :3, :, :] if sr_image.shape[1] == 4 else sr_image
-
         img_loss = mse_criterion(real_img, sr_image_rgb)
         sr_image_gray = sr_image_rgb.mean(dim=1, keepdim=True)
         ocr_loss = ocr_processor.process(sr_image_gray, ocr_label)
-
         total_loss = (img_loss * 1.0 + ocr_loss * ocr_weight) / accumulation_steps
         total_loss.backward()
-
         img_loss_list.append(img_loss.item())
         ocr_loss_list.append(ocr_loss.item())
-
         if iteration % accumulation_steps == 0 or iteration == len(data_loader):
             torch.nn.utils.clip_grad_norm_(netSR.parameters(), max_norm=1.0)
             optimizer.step()
             optimizer.zero_grad()
-
-
     avg_losses = {'img': np.mean(img_loss_list), 'ocr': np.mean(ocr_loss_list)}
-
     print(
-        f"--- Epoch {epoch} Training   Summary --- Img Loss: {avg_losses['img']:.4f}, OCR Loss: {avg_losses['ocr']:.4f}")
+        f"--- Epoch {epoch} Training Summary --- Img Loss: {avg_losses['img']:.4f}, OCR Loss: {avg_losses['ocr']:.4f}")
     return avg_losses
 
 
 def validate_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, epoch, device, ocr_weight):
     netSR.eval()
     img_loss_list, ocr_loss_list = [], []
-
     with torch.no_grad():
         for batch in data_loader:
             input_img, real_img, ocr_label = batch
             input_img, real_img = input_img.to(device), real_img.to(device)
-
-            if opt.arch == 'tsrn':
-                model_input = input_img
-            else:
-                model_input = input_img[:, :3, :, :]
-
+            model_input = input_img if opt.arch == 'tsrn' else input_img[:, :3, :, :]
             sr_image = netSR(model_input)
             sr_image_rgb = sr_image[:, :3, :, :] if sr_image.shape[1] == 4 else sr_image
-
             img_loss = mse_criterion(real_img, sr_image_rgb)
             sr_image_gray = sr_image_rgb.mean(dim=1, keepdim=True)
             ocr_loss = ocr_processor.process(sr_image_gray, ocr_label)
-
             img_loss_list.append(img_loss.item())
             ocr_loss_list.append(ocr_loss.item())
-
     avg_losses = {'img': np.mean(img_loss_list), 'ocr': np.mean(ocr_loss_list)}
     print(
         f"--- Epoch {epoch} Validation Summary --- Img Loss: {avg_losses['img']:.4f}, OCR Loss: {avg_losses['ocr']:.4f}")
@@ -292,7 +356,6 @@ def save_and_plot_metrics(metrics, save_folder):
     plot_path = os.path.join(save_folder, 'loss_plot.png')
     df = pd.DataFrame(metrics)
     df.to_csv(csv_path, index=False)
-
     plt.style.use('seaborn-v0_8-whitegrid')
     fig, axs = plt.subplots(1, 2, figsize=(15, 6))
     axs[0].plot(df['epoch'], df['train_img_loss'], 'o-', label='Train Image Loss')
