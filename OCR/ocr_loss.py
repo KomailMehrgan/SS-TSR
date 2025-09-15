@@ -13,7 +13,7 @@ class OCRProcessor:
         self.device = device
         self.crossEntropy_loss = nn.CrossEntropyLoss(
             ignore_index=1,  # Assuming 1 is your padding token
-            label_smoothing=0.1
+            # label_smoothing=0.1
         ).to(self.device)
         self.mse_criterion = nn.MSELoss(reduction='mean').cuda()
         # Add a flag to ensure the debug prints only happen once per run

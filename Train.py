@@ -11,6 +11,7 @@ import string
 from datetime import datetime
 import matplotlib.pyplot as plt
 import torchvision.transforms.functional as F
+import random
 from torchvision import transforms  # Added for easier access to InterpolationMode
 
 # --- Model Imports ---
@@ -27,29 +28,65 @@ from datasets.data_set_from_pt import DatasetFromPT  # Using the efficient .pt l
 
 
 # --- Data Augmentation Classes ---
+# --- Data Augmentation Classes ---
 class JointRandomAugment:
     """
     Applies the same random augmentation to a pair of low-res and high-res images.
+    Safe for OCR-based training: does not corrupt text.
     """
 
-    def __init__(self):
-        self.rot_params = transforms.RandomRotation.get_params([-10, 10])
-        self.brightness_factor = torch.empty(1).uniform_(0.6, 1.4).item()
-        self.swap_flag = torch.rand(1) < 0.5
+    def __init__(self, max_rotation=5, max_translation=2, scale_range=(0.95, 1.05),
+                 brightness=(0.8, 1.2), contrast=(0.8, 1.2), saturation=(0.9, 1.1), gamma=(0.9, 1.1),
+                 swap_prob=0.5):
+        self.max_rotation = max_rotation
+        self.max_translation = max_translation
+        self.scale_range = scale_range
+        self.brightness = brightness
+        self.contrast = contrast
+        self.saturation = saturation
+        self.gamma = gamma
+        self.swap_prob = swap_prob
 
     def __call__(self, lr_img, hr_img):
-        lr_aug = F.rotate(lr_img, self.rot_params, interpolation=F.InterpolationMode.BILINEAR)
-        hr_aug = F.rotate(hr_img, self.rot_params, interpolation=F.InterpolationMode.BILINEAR)
+        # ---- Geometric transforms ----
+        angle = random.uniform(-self.max_rotation, self.max_rotation)
+        translate_x = random.uniform(-self.max_translation, self.max_translation)
+        translate_y = random.uniform(-self.max_translation, self.max_translation)
+        scale = random.uniform(*self.scale_range)
+
+        lr_aug = F.affine(lr_img, angle=angle, translate=(translate_x, translate_y),
+                          scale=scale, shear=0, interpolation=F.InterpolationMode.BILINEAR)
+        hr_aug = F.affine(hr_img, angle=angle, translate=(translate_x, translate_y),
+                          scale=scale, shear=0, interpolation=F.InterpolationMode.BILINEAR)
+
+        # ---- Color / photometric transforms ----
+        b = random.uniform(*self.brightness)
+        c = random.uniform(*self.contrast)
+        s = random.uniform(*self.saturation)
+        g = random.uniform(*self.gamma)
+
         lr_rgb = lr_aug[:3, :, :]
         hr_rgb = hr_aug
-        lr_rgb = F.adjust_brightness(lr_rgb, self.brightness_factor)
-        hr_rgb = F.adjust_brightness(hr_rgb, self.brightness_factor)
-        if self.swap_flag:
+
+        lr_rgb = F.adjust_brightness(lr_rgb, b)
+        hr_rgb = F.adjust_brightness(hr_rgb, b)
+
+        lr_rgb = F.adjust_contrast(lr_rgb, c)
+        hr_rgb = F.adjust_contrast(hr_rgb, c)
+
+        lr_rgb = F.adjust_saturation(lr_rgb, s)
+        hr_rgb = F.adjust_saturation(hr_rgb, s)
+
+        lr_rgb = F.adjust_gamma(lr_rgb, g)
+        hr_rgb = F.adjust_gamma(hr_rgb, g)
+
+        # ---- Optional RGB swap ----
+        if random.random() < self.swap_prob:
             lr_rgb = lr_rgb[[2, 1, 0], :, :]
             hr_rgb = hr_rgb[[2, 1, 0], :, :]
+
         lr_aug[:3, :, :] = lr_rgb
         return lr_aug, hr_rgb
-
 
 class AugmentedDataset(Dataset):
     """
@@ -79,7 +116,7 @@ def get_model(arch_name, device):
     if arch_name == 'tsrn':
         params = {
             'scale_factor': 2, 'width': 128, 'height': 32,
-            'STN': True, 'srb_nums': 12, 'mask': True, 'hidden_units': 64
+            'STN': True, 'srb_nums': 24, 'mask': True, 'hidden_units': 96
         }
         model = TSRN(**params)
     elif arch_name == 'srresnet':
@@ -163,16 +200,16 @@ def main():
     parser.add_argument('--arch', type=str, default="tsrn", choices=['tsrn', 'srresnet', 'rdn', 'srcnn'])
     parser.add_argument("--dataset", type=str, default="datasets/dataset.pt")
     parser.add_argument('--ocr_weight', type=float, default=0.01)
-    parser.add_argument('--ablation_weights', default=[0, 0.0001, 0.001, 0.01, 0.1, 1], type=float, nargs='+')
-    parser.add_argument("--scale", type=float, default=0.001)
+    parser.add_argument('--ablation_weights', default=[0.001,0.002,0.003,0.004], type=float, nargs='+')
+    parser.add_argument("--scale", type=float, default=0.01)
     parser.add_argument("--val_split", type=float, default=0.1)
-    parser.add_argument("--batchSize", type=int, default=2)
-    parser.add_argument("--accumulation", type=int, default=1)
+    parser.add_argument("--batchSize", type=int, default=8)
+    parser.add_argument("--accumulation", type=int, default=6)
     parser.add_argument("--threads", type=int, default=0)
     parser.add_argument("--aug", type=int, default=3)
-    parser.add_argument("--nEpochs", type=int, default=150)
-    parser.add_argument("--lr", type=float, default=0.0001)
-    parser.add_argument("--step", type=int, default=500)
+    parser.add_argument("--nEpochs", type=int, default=120)
+    parser.add_argument("--lr", type=float, default=0.0002)
+    parser.add_argument("--step", type=int, default=20)
     parser.add_argument("--cuda", action="store_false")
     parser.add_argument("--gpus", default="0", type=str)
     parser.add_argument("--resume", default="", type=str)
@@ -205,22 +242,17 @@ def main():
     print(f"Using a subset of {len(study_subset)} images ({opt.scale * 100:.1f}% of total).")
     val_size = int(opt.val_split * len(study_subset))
     train_size = len(study_subset) - val_size
-    train_dataset_base = Subset(study_subset, range(train_size))
+    train_dataset = Subset(study_subset, range(train_size))
     val_dataset = Subset(study_subset, range(train_size, len(study_subset)))
-    print(f"Split into {len(train_dataset_base)} training and {len(val_dataset)} validation images.")
+    print(f"Split into {len(train_dataset)} training and {len(val_dataset)} validation images.")
 
     # --- Augmentation Handling ---
-    if opt.aug > 1:
-        print(f"\n===> Applying augmentation. Multiplying training data by {opt.aug}x...")
-        original_train_dataset = train_dataset_base
-        augmented_datasets = [original_train_dataset]
-        for _ in range(opt.aug - 1):
-            augmented_datasets.append(AugmentedDataset(original_train_dataset))
-        train_dataset = ConcatDataset(augmented_datasets)
-        print(f"New training dataset size: {len(train_dataset)}")
+    if opt.aug > 0:
+        print("\n===> Using online augmentation (no dataset size increase).")
+        train_dataset = AugmentedDataset(train_dataset)
     else:
         print("\n===> Augmentation disabled.")
-        train_dataset = train_dataset_base
+        train_dataset = train_dataset
 
     train_loader = DataLoader(dataset=train_dataset, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True,
                               drop_last=True, pin_memory=True)
@@ -247,7 +279,8 @@ def main():
     character = string.printable[:-6]
     converter = AttnLabelConverter(character)
     ocr_processor = OCRProcessor(netOCR, converter, device)
-    mse_criterion = nn.MSELoss(reduction='mean').to(device)
+    # mse_criterion = nn.MSELoss(reduction='mean').to(device)
+    mse_criterion = nn.L1Loss(reduction='mean').to(device)
 
     # --- Determine Training Mode ---
     weights_to_run = opt.ablation_weights if opt.ablation_weights is not None else [opt.ocr_weight]
@@ -272,7 +305,8 @@ def main():
         save_run_details(run_folder, opt, netSR, model_params, full_dataset, train_dataset, val_dataset, ocr_weight)
 
         optimizer = torch.optim.AdamW(netSR.parameters(), lr=opt.lr, weight_decay=1e-5)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=opt.step, gamma=0.1)
+        # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=opt.step, gamma=0.5)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=40, eta_min=0)
         metrics = {'epoch': [], 'train_img_loss': [], 'train_ocr_loss': [], 'val_img_loss': [], 'val_ocr_loss': []}
 
         for epoch in range(opt.start_epoch, opt.nEpochs + 1):
@@ -308,6 +342,8 @@ def train_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, optim
         sr_image_gray = sr_image_rgb.mean(dim=1, keepdim=True)
         ocr_loss = ocr_processor.process(sr_image_gray, ocr_label)
         total_loss = (img_loss * 1.0 + ocr_loss * ocr_weight) / accumulation_steps
+
+
         total_loss.backward()
         img_loss_list.append(img_loss.item())
         ocr_loss_list.append(ocr_loss.item())
