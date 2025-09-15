@@ -33,28 +33,69 @@ from dynamic_weights import DynamicLossWeighter, DTP, PCGrad
 
 
 # --- Data Augmentation Classes ---
+import torch
+import torchvision.transforms.functional as F
+import random
+
 class JointRandomAugment:
     """
     Applies the same random augmentation to a pair of low-res and high-res images.
+    Safe for OCR-based training: does not corrupt text.
     """
 
-    def __init__(self):
-        self.rot_params = transforms.RandomRotation.get_params([-10, 10])
-        self.brightness_factor = torch.empty(1).uniform_(0.6, 1.4).item()
-        self.swap_flag = torch.rand(1) < 0.5
+    def __init__(self, max_rotation=5, max_translation=2, scale_range=(0.95, 1.05),
+                 brightness=(0.8, 1.2), contrast=(0.8, 1.2), saturation=(0.9, 1.1), gamma=(0.9, 1.1),
+                 swap_prob=0.5):
+        self.max_rotation = max_rotation
+        self.max_translation = max_translation
+        self.scale_range = scale_range
+        self.brightness = brightness
+        self.contrast = contrast
+        self.saturation = saturation
+        self.gamma = gamma
+        self.swap_prob = swap_prob
 
     def __call__(self, lr_img, hr_img):
-        lr_aug = F.rotate(lr_img, self.rot_params, interpolation=F.InterpolationMode.BILINEAR)
-        hr_aug = F.rotate(hr_img, self.rot_params, interpolation=F.InterpolationMode.BILINEAR)
+        # ---- Geometric transforms ----
+        angle = random.uniform(-self.max_rotation, self.max_rotation)
+        translate_x = random.uniform(-self.max_translation, self.max_translation)
+        translate_y = random.uniform(-self.max_translation, self.max_translation)
+        scale = random.uniform(*self.scale_range)
+
+        lr_aug = F.affine(lr_img, angle=angle, translate=(translate_x, translate_y),
+                          scale=scale, shear=0, interpolation=F.InterpolationMode.BILINEAR)
+        hr_aug = F.affine(hr_img, angle=angle, translate=(translate_x, translate_y),
+                          scale=scale, shear=0, interpolation=F.InterpolationMode.BILINEAR)
+
+        # ---- Color / photometric transforms ----
+        b = random.uniform(*self.brightness)
+        c = random.uniform(*self.contrast)
+        s = random.uniform(*self.saturation)
+        g = random.uniform(*self.gamma)
+
         lr_rgb = lr_aug[:3, :, :]
         hr_rgb = hr_aug
-        lr_rgb = F.adjust_brightness(lr_rgb, self.brightness_factor)
-        hr_rgb = F.adjust_brightness(hr_rgb, self.brightness_factor)
-        if self.swap_flag:
+
+        lr_rgb = F.adjust_brightness(lr_rgb, b)
+        hr_rgb = F.adjust_brightness(hr_rgb, b)
+
+        lr_rgb = F.adjust_contrast(lr_rgb, c)
+        hr_rgb = F.adjust_contrast(hr_rgb, c)
+
+        lr_rgb = F.adjust_saturation(lr_rgb, s)
+        hr_rgb = F.adjust_saturation(hr_rgb, s)
+
+        lr_rgb = F.adjust_gamma(lr_rgb, g)
+        hr_rgb = F.adjust_gamma(hr_rgb, g)
+
+        # ---- Optional RGB swap ----
+        if random.random() < self.swap_prob:
             lr_rgb = lr_rgb[[2, 1, 0], :, :]
             hr_rgb = hr_rgb[[2, 1, 0], :, :]
+
         lr_aug[:3, :, :] = lr_rgb
         return lr_aug, hr_rgb
+
 
 
 class AugmentedDataset(Dataset):
@@ -163,16 +204,16 @@ def main():
     # Arguments...
     parser.add_argument('--arch', type=str, default="tsrn", choices=['tsrn', 'srresnet', 'rdn', 'srcnn'])
     parser.add_argument("--dataset", type=str, default="datasets/dataset.pt")
-    parser.add_argument("--scale", type=float, default=0.005)
+    parser.add_argument("--scale", type=float, default=1)
     parser.add_argument("--val_split", type=float, default=0.1)
-    parser.add_argument("--batchSize", type=int, default=4)
-    parser.add_argument("--accumulation", type=int, default=2)
+    parser.add_argument("--batchSize", type=int, default=128)
+    parser.add_argument("--accumulation", type=int, default=1)
     parser.add_argument("--threads", type=int, default=0)
-    parser.add_argument("--aug", type=int, default=2)
-    parser.add_argument("--nEpochs", type=int, default=100)
+    parser.add_argument("--aug", type=int, default=3)
+    parser.add_argument("--nEpochs", type=int, default=500)
     parser.add_argument("--lr", type=float, default=0.0001)
-    parser.add_argument("--step", type=int, default=500)
-    parser.add_argument("--fast", action="store_true")
+    parser.add_argument("--step", type=int, default=100)
+    parser.add_argument("--fast", action="store_false")
     parser.add_argument('--loss_weigher', type=str, default='uncert', choices=['fixed', 'uncert', 'pcgrad', 'dtp'])
     parser.add_argument('--weighter_lr_ratio', type=float, default=10.0)
     parser.add_argument('--fixed_ocr_weight', type=float, default=0.01)
@@ -213,14 +254,9 @@ def main():
     print(f"Split into {len(train_dataset_base)} training and {len(val_dataset)} validation images.")
 
     # --- Augmentation Handling ---
-    if opt.aug > 1:
-        print(f"\n===> Applying augmentation. Multiplying training data by {opt.aug}x...")
-        original_train_dataset = train_dataset_base
-        augmented_datasets = [original_train_dataset]
-        for _ in range(opt.aug - 1):
-            augmented_datasets.append(AugmentedDataset(original_train_dataset))
-        train_dataset = ConcatDataset(augmented_datasets)
-        print(f"New training dataset size: {len(train_dataset)}")
+    if opt.aug > 0:
+        print("\n===> Using online augmentation (no dataset size increase).")
+        train_dataset = AugmentedDataset(train_dataset_base)
     else:
         print("\n===> Augmentation disabled.")
         train_dataset = train_dataset_base
