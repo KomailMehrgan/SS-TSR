@@ -116,7 +116,7 @@ def get_model(arch_name, device):
     if arch_name == 'tsrn':
         params = {
             'scale_factor': 2, 'width': 128, 'height': 32,
-            'STN': True, 'srb_nums': 24, 'mask': True, 'hidden_units': 96
+            'STN': True, 'srb_nums': 5, 'mask': True, 'hidden_units': 96
         }
         model = TSRN(**params)
     elif arch_name == 'srresnet':
@@ -200,16 +200,16 @@ def main():
     parser.add_argument('--arch', type=str, default="tsrn", choices=['tsrn', 'srresnet', 'rdn', 'srcnn'])
     parser.add_argument("--dataset", type=str, default="datasets/dataset.pt")
     parser.add_argument('--ocr_weight', type=float, default=0.01)
-    parser.add_argument('--ablation_weights', default=[0.001,0.002,0.003,0.004], type=float, nargs='+')
-    parser.add_argument("--scale", type=float, default=0.01)
+    parser.add_argument('--ablation_weights', default=[0.01,0,0.001], type=float, nargs='+')
+    parser.add_argument("--scale", type=float, default=0.03)
     parser.add_argument("--val_split", type=float, default=0.1)
-    parser.add_argument("--batchSize", type=int, default=8)
-    parser.add_argument("--accumulation", type=int, default=6)
+    parser.add_argument("--batchSize", type=int, default=48)
+    parser.add_argument("--accumulation", type=int, default=1)
     parser.add_argument("--threads", type=int, default=0)
     parser.add_argument("--aug", type=int, default=3)
-    parser.add_argument("--nEpochs", type=int, default=120)
+    parser.add_argument("--nEpochs", type=int, default=150)
     parser.add_argument("--lr", type=float, default=0.0002)
-    parser.add_argument("--step", type=int, default=20)
+    parser.add_argument("--step", type=int, default=50)
     parser.add_argument("--cuda", action="store_false")
     parser.add_argument("--gpus", default="0", type=str)
     parser.add_argument("--resume", default="", type=str)
@@ -305,8 +305,8 @@ def main():
         save_run_details(run_folder, opt, netSR, model_params, full_dataset, train_dataset, val_dataset, ocr_weight)
 
         optimizer = torch.optim.AdamW(netSR.parameters(), lr=opt.lr, weight_decay=1e-5)
-        # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=opt.step, gamma=0.5)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=40, eta_min=0)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=opt.step, gamma=0.5)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=40, eta_min=0)
         metrics = {'epoch': [], 'train_img_loss': [], 'train_ocr_loss': [], 'val_img_loss': [], 'val_ocr_loss': []}
 
         for epoch in range(opt.start_epoch, opt.nEpochs + 1):
@@ -348,7 +348,7 @@ def train_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, optim
         img_loss_list.append(img_loss.item())
         ocr_loss_list.append(ocr_loss.item())
         if iteration % accumulation_steps == 0 or iteration == len(data_loader):
-            torch.nn.utils.clip_grad_norm_(netSR.parameters(), max_norm=1.0)
+            # torch.nn.utils.clip_grad_norm_(netSR.parameters(), max_norm=1.0)
             optimizer.step()
             optimizer.zero_grad()
     avg_losses = {'img': np.mean(img_loss_list), 'ocr': np.mean(ocr_loss_list)}

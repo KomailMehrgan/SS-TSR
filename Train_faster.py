@@ -116,7 +116,7 @@ def get_model(arch_name, device):
     if arch_name == 'tsrn':
         params = {
             'scale_factor': 2, 'width': 128, 'height': 32,
-            'STN': True, 'srb_nums': 24, 'mask': True, 'hidden_units': 96
+            'STN': True, 'srb_nums': 5, 'mask': True, 'hidden_units': 96
         }
         model = TSRN(**params)
     elif arch_name == 'srresnet':
@@ -202,15 +202,15 @@ def main():
     parser.add_argument('--arch', type=str, default="tsrn", choices=['tsrn', 'srresnet', 'rdn', 'srcnn'])
     parser.add_argument("--dataset", type=str, default="datasets/dataset.pt")
     parser.add_argument('--ocr_weight', type=float, default=0.01)
-    parser.add_argument('--ablation_weights', default=[0.005,0.0001,0.001,0.0005], type=float, nargs='+')
-    parser.add_argument("--scale", type=float, default=0.02)
+    parser.add_argument('--ablation_weights', default=[0,0.001,0.01,0.005,0.0005], type=float, nargs='+')
+    parser.add_argument("--scale", type=float, default=0.12)
     parser.add_argument("--val_split", type=float, default=0.1)
-    parser.add_argument("--batchSize", type=int, default=32)
+    parser.add_argument("--batchSize", type=int, default=48)
     parser.add_argument("--accumulation_steps", type=int, default=1)
-    parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--aug", type=int, default=2)
     parser.add_argument("--nEpochs", type=int, default=200)
-    parser.add_argument("--lr", type=float, default=0.0003)
+    parser.add_argument("--lr", type=float, default=0.0005)
     parser.add_argument("--step", type=int, default=50)
     parser.add_argument("--cuda", action="store_false")
     parser.add_argument("--gpus", default="0", type=str)
@@ -341,7 +341,7 @@ def train_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, optim
         scaler.scale(total_loss).backward()
         if (iter_idx % opt.accumulation_steps == 0) or (iter_idx == len(data_loader)):
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(netSR.parameters(), max_norm=1.0)
+            # torch.nn.utils.clip_grad_norm_(netSR.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
