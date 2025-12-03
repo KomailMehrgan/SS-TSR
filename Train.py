@@ -116,7 +116,7 @@ def get_model(arch_name, device):
     if arch_name == 'tsrn':
         params = {
             'scale_factor': 2, 'width': 128, 'height': 32,
-            'STN': True, 'srb_nums': 5, 'mask': True, 'hidden_units': 96
+            'STN': True, 'srb_nums': 12, 'mask': True, 'hidden_units': 64
         }
         model = TSRN(**params)
     elif arch_name == 'srresnet':
@@ -200,20 +200,20 @@ def main():
     parser.add_argument('--arch', type=str, default="tsrn", choices=['tsrn', 'srresnet', 'rdn', 'srcnn'])
     parser.add_argument("--dataset", type=str, default="datasets/dataset.pt")
     parser.add_argument('--ocr_weight', type=float, default=0.01)
-    parser.add_argument('--ablation_weights', default=[0.01,0,0.001], type=float, nargs='+')
+    parser.add_argument('--ablation_weights', default=[0.001], type=float, nargs='+')
     parser.add_argument("--scale", type=float, default=0.03)
-    parser.add_argument("--val_split", type=float, default=0.1)
-    parser.add_argument("--batchSize", type=int, default=48)
+    parser.add_argument("--val_split", type=float, default=0)
+    parser.add_argument("--batchSize", type=int, default=4)
     parser.add_argument("--accumulation", type=int, default=1)
     parser.add_argument("--threads", type=int, default=0)
-    parser.add_argument("--aug", type=int, default=3)
-    parser.add_argument("--nEpochs", type=int, default=150)
+    parser.add_argument("--aug", type=int, default=0)
+    parser.add_argument("--nEpochs", type=int, default=350)
     parser.add_argument("--lr", type=float, default=0.0002)
     parser.add_argument("--step", type=int, default=50)
     parser.add_argument("--cuda", action="store_false")
     parser.add_argument("--gpus", default="0", type=str)
-    parser.add_argument("--resume", default="", type=str)
-    parser.add_argument("--start-epoch", default=1, type=int)
+    parser.add_argument("--resume", default="back_up_models/SR/ss-tsrn/ss-tsrn_300.pth", type=str)
+    parser.add_argument("--start-epoch", default=301, type=int)
     opt = parser.parse_args()
 
     print("--- Unified Training Script ---")
@@ -276,6 +276,7 @@ def main():
     for module in netOCR.modules():
         if isinstance(module, torch.nn.BatchNorm2d):
             module.eval()
+    # character='0123456789abcdefghijklmnopqrstuvwxyz'
     character = string.printable[:-6]
     converter = AttnLabelConverter(character)
     ocr_processor = OCRProcessor(netOCR, converter, device)
@@ -300,6 +301,18 @@ def main():
 
         torch.manual_seed(reproducibility_seed)
         netSR, model_params = get_model(opt.arch, device)
+
+        # =========================================================================
+        # 1. NEW: RESUME LOGIC ADDED HERE
+        # =========================================================================
+        current_start_epoch = opt.start_epoch  # Default start
+
+        if opt.resume and opt.resume.strip():
+            if os.path.isfile(opt.resume):
+                print(f"===> Resuming from checkpoint: {opt.resume}")
+                checkpoint = torch.load(opt.resume, map_location='cpu', weights_only=False)
+                netSR.load_state_dict(checkpoint['model'].state_dict())
+
 
         # Save comprehensive run details
         save_run_details(run_folder, opt, netSR, model_params, full_dataset, train_dataset, val_dataset, ocr_weight)
@@ -359,6 +372,12 @@ def train_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, optim
 
 def validate_one_epoch(opt, data_loader, netSR, ocr_processor, mse_criterion, epoch, device, ocr_weight):
     netSR.eval()
+
+    if len(data_loader) == 0:
+        print(f"--- Epoch {epoch} Validation Summary --- Skipped (No validation data)")
+        return {'img': 0.0, 'ocr': 0.0}
+        # -------------------
+
     img_loss_list, ocr_loss_list = [], []
     with torch.no_grad():
         for batch in data_loader:
